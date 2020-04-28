@@ -1,100 +1,47 @@
-#
-# Серверное приложение для соединений
-#
-import asyncio
-from asyncio import transports
+import json
 
 
-class ServerProtocol(asyncio.Protocol):
-    login: str = None
-    server: 'Server'
-    transport: transports.Transport
+from flask import Flask, request, Response
 
-    def __init__(self, server: 'Server'):
-        self.server = server
+app = Flask(__name__)
 
-    def data_received(self, data: bytes):
-        print(data)
-
-        decoded = data.decode()
-
-        if self.login is not None:
-            self.send_message(decoded)
-        else:
-            if decoded.startswith("login:")   :
-              
-                self.login = decoded.replace("login:", "").replace("\r\n", "")
-                if not self.login in self.server.clients_name : 
-                        self.send_history()
-                        self.server.clients_name.append(self.login)
-                        self.transport.write(
-                               f"Привет, {self.login}!\n".encode()
-                )
-                else : 
-                       self.transport.write(f"Логин {self.login} уже занят, попробуйте другой\n".encode())
-                       self.transport.close()
-            else:
-                self.transport.write("Неправильный логин\n".encode())
-                #self.transport.close()
-    def connection_made(self, transport: transports.Transport):
-        self.server.clients.append(self)
-        
-        self.transport = transport
-        print("Пришел новый клиент")
-
-    def connection_lost(self, exception):
-        self.server.clients.remove(self)
-        if self.login != None :
-            self.server.clients_name.remove(self.login)	
-        print("Клиент вышел")
-
-    def send_message(self, content: str):
-        message = f"{self.login}: {content}\n"
-        if len(self.server.last_messages) < 10 :
-        	self.server.last_messages.append([self.login, content])
-        else :
-        	del self.server.last_messages[0]
-        	self.server.last_messages.append([self.login, content])
-  
-   
-        for user in self.server.clients:
-            user.transport.write(message.encode())
-    
-    
-    def send_history(self) :
-    	for message in self.server.last_messages :
-    		self.transport.write(f"{message[0]}: {message[1]}\n".encode())
-    	
-
-class Server:
-    clients: list
-    clients_name: list =[]
-    last_messages: list = []
-
-    def __init__(self):
-        self.clients = []
-
-    def build_protocol(self):
-        return ServerProtocol(self)
-
-    async def start(self):
-        loop = asyncio.get_running_loop()
-
-        coroutine = await loop.create_server(
-            self.build_protocol,
-            '127.0.0.1',
-            8888
-        )
-
-        print("Сервер запущен ...")
-
-        await coroutine.serve_forever()
+stats = {
+    'attempts': 0,
+    'success': 0,
+}
 
 
-process = Server()
 
-try:
-    asyncio.run(process.start())
-except KeyboardInterrupt:
-    print("Сервер остановлен вручную")
-    
+
+
+@app.route('/')
+def hello():
+    return f'Hello, user! stats={stats}'
+
+
+@app.route('/auth', methods=['POST'])
+def auth():
+    stats['attempts'] += 1
+
+    data = request.json
+    login = data['login']
+    password = data['password']
+
+    with open('users.json') as users_file:
+        users = json.load(users_file)
+
+    # users_file = open('users.json')
+    # users = json.load(users_file)
+    # users_file.close()
+
+    if login in users and users[login] == password:
+        status_code = 200
+        stats['success'] += 1
+    else:
+        status_code = 401
+
+    return Response(status=status_code)
+
+
+if __name__ == '__main__' :
+    app.run()
